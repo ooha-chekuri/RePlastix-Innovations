@@ -1,0 +1,237 @@
+public class InventoryManager {
+
+    // ============================================================
+    // PROCESS ORDER STOCK
+    // ============================================================
+
+    public static void processOrderStock(
+        List<Re_Plastic_Innovations_Order__c> orderList
+    ) {
+
+        if (orderList == null || orderList.isEmpty()) {
+            return;
+        }
+
+        Set<Id> productIds = new Set<Id>();
+
+        // Collect Product IDs from Orders
+        for (Re_Plastic_Innovations_Order__c order : orderList) {
+
+            if (order.Recycled_Product__c != null) {
+                productIds.add(
+                    order.Recycled_Product__c
+                );
+            }
+        }
+
+        if (productIds.isEmpty()) {
+            return;
+        }
+
+        // Get Products
+        Map<Id, Re_Plastic_Innovations_Recycled_Product__c> productMap =
+            new Map<Id, Re_Plastic_Innovations_Recycled_Product__c>(
+                [
+                    SELECT Id, Stock_Level__c, Threshold__c
+                    FROM Re_Plastic_Innovations_Recycled_Product__c
+                    WHERE Id IN :productIds
+                ]
+            );
+
+        // Products that need stock updates
+        Map<Id, Re_Plastic_Innovations_Recycled_Product__c> productsToUpdate =
+            new Map<Id, Re_Plastic_Innovations_Recycled_Product__c>();
+
+        // Restock requests to create
+        List<Re_Plastic_Innovations_Restock_Request__c> restockRequests =
+            new List<Re_Plastic_Innovations_Restock_Request__c>();
+
+        // Process Orders
+        for (Re_Plastic_Innovations_Order__c order : orderList) {
+
+            if (
+                order.Recycled_Product__c == null ||
+                order.Quantity__c == null
+            ) {
+                continue;
+            }
+
+            Re_Plastic_Innovations_Recycled_Product__c product =
+                productMap.get(
+                    order.Recycled_Product__c
+                );
+
+            // Product does not exist
+            if (product == null) {
+                continue;
+            }
+
+            Decimal currentStock =
+                product.Stock_Level__c == null
+                ? 0
+                : product.Stock_Level__c;
+
+            // ----------------------------------------------------
+            // Enough Stock
+            // ----------------------------------------------------
+
+            if (currentStock >= order.Quantity__c) {
+
+                product.Stock_Level__c =
+                    currentStock - order.Quantity__c;
+
+                productsToUpdate.put(
+                    product.Id,
+                    product
+                );
+            }
+
+            // ----------------------------------------------------
+            // Not Enough Stock
+            // ----------------------------------------------------
+
+            else {
+
+                Decimal requiredQuantity =
+                    order.Quantity__c - currentStock;
+
+                restockRequests.add(
+                    new Re_Plastic_Innovations_Restock_Request__c(
+                        Product__c = product.Id,
+                        Requested_Quantity__c = requiredQuantity,
+                        Status__c = 'Pending'
+                    )
+                );
+            }
+        }
+
+        // --------------------------------------------------------
+        // Update Product Stock
+        // --------------------------------------------------------
+
+        if (!productsToUpdate.isEmpty()) {
+            update productsToUpdate.values();
+        }
+
+        // --------------------------------------------------------
+        // Create Restock Requests
+        // --------------------------------------------------------
+
+        if (!restockRequests.isEmpty()) {
+            insert restockRequests;
+        }
+    }
+
+
+    // ============================================================
+    // PROCESS RESTOCK APPROVAL
+    // ============================================================
+
+    public static void processRestockApproval(
+        List<Re_Plastic_Innovations_Restock_Request__c> restockList
+    ) {
+
+        if (restockList == null || restockList.isEmpty()) {
+            return;
+        }
+
+        Set<Id> productIds = new Set<Id>();
+
+        // Collect Product IDs from Approved Restock Requests
+        for (
+            Re_Plastic_Innovations_Restock_Request__c restock
+            : restockList
+        ) {
+
+            if (
+                restock.Status__c == 'Approved' &&
+                restock.Product__c != null
+            ) {
+
+                productIds.add(
+                    restock.Product__c
+                );
+            }
+        }
+
+        if (productIds.isEmpty()) {
+            return;
+        }
+
+        // Get Products
+        Map<Id, Re_Plastic_Innovations_Recycled_Product__c> productMap =
+            new Map<Id, Re_Plastic_Innovations_Recycled_Product__c>(
+                [
+                    SELECT Id, Stock_Level__c
+                    FROM Re_Plastic_Innovations_Recycled_Product__c
+                    WHERE Id IN :productIds
+                ]
+            );
+
+        // Products that need stock updates
+        Map<Id, Re_Plastic_Innovations_Recycled_Product__c> productsToUpdate =
+            new Map<Id, Re_Plastic_Innovations_Recycled_Product__c>();
+
+        // Process Approved Restock Requests
+        for (
+            Re_Plastic_Innovations_Restock_Request__c restock
+            : restockList
+        ) {
+
+            if (
+                restock.Status__c != 'Approved' ||
+                restock.Requested_Quantity__c == null ||
+                restock.Product__c == null
+            ) {
+                continue;
+            }
+
+            // Make sure Product exists
+            if (!productMap.containsKey(restock.Product__c)) {
+                continue;
+            }
+
+            Re_Plastic_Innovations_Recycled_Product__c product =
+                productMap.get(
+                    restock.Product__c
+                );
+
+            Decimal currentStock;
+
+            // If product was already updated in this transaction,
+            // use the latest value
+            if (productsToUpdate.containsKey(product.Id)) {
+
+                currentStock =
+                    productsToUpdate.get(product.Id).Stock_Level__c;
+
+            } else {
+
+                currentStock =
+                    product.Stock_Level__c;
+            }
+
+            // If Stock Level is blank, treat it as 0
+            if (currentStock == null) {
+                currentStock = 0;
+            }
+
+            // Add approved quantity to stock
+            product.Stock_Level__c =
+                currentStock + restock.Requested_Quantity__c;
+
+            productsToUpdate.put(
+                product.Id,
+                product
+            );
+        }
+
+        // --------------------------------------------------------
+        // Update Product Stock
+        // --------------------------------------------------------
+
+        if (!productsToUpdate.isEmpty()) {
+            update productsToUpdate.values();
+        }
+    }
+}

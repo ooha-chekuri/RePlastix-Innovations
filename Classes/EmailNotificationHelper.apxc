@@ -1,0 +1,53 @@
+public class EmailNotificationHelper {
+
+    public static void sendRestockNotification(
+        List<Re_Plastic_Innovations_Restock_Request__c> restockRequests
+    ) {
+
+        if (restockRequests == null || restockRequests.isEmpty()) {
+            return;
+        }
+
+        List<Messaging.SingleEmailMessage> emails =
+            new List<Messaging.SingleEmailMessage>();
+
+        for (
+            Re_Plastic_Innovations_Restock_Request__c restock
+            : restockRequests
+        ) {
+
+            Messaging.SingleEmailMessage email =
+                new Messaging.SingleEmailMessage();
+
+            email.setToAddresses(
+                new List<String>{
+                    '238w1a5413@vrsec.ac.in'
+                }
+            );
+
+            email.setSubject(
+                'Restock Request Approved'
+            );
+
+            email.setPlainTextBody(
+                'Hello Ooha,\n\n' +
+                'Your restock request has been approved.\n\n' +
+                'Restock Request ID: ' +
+                String.valueOf(restock.Id) + '\n' +
+                'Product ID: ' +
+                String.valueOf(restock.Product__c) + '\n' +
+                'Approved Quantity: ' +
+                String.valueOf(restock.Requested_Quantity__c) + '\n' +
+                'Status: ' +
+                String.valueOf(restock.Status__c) + '\n\n' +
+                'The product stock has been updated successfully.'
+            );
+
+            emails.add(email);
+        }
+
+        if (!emails.isEmpty()) {
+            Messaging.sendEmail(emails);
+        }
+    }
+}

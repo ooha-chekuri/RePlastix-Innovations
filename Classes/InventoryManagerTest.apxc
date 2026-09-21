@@ -1,0 +1,261 @@
+@isTest
+public class InventoryManagerTest {
+
+    @testSetup
+    static void setupTestData() {
+
+        Re_Plastic_Innovations_Recycled_Product__c product =
+            new Re_Plastic_Innovations_Recycled_Product__c(
+                Name = 'Test Product',
+                Stock_Level__c = 50,
+                Threshold__c = 100
+            );
+
+        insert product;
+    }
+
+    @isTest
+    static void testProcessOrderStock() {
+
+        Re_Plastic_Innovations_Recycled_Product__c product =
+            [
+                SELECT Id, Stock_Level__c
+                FROM Re_Plastic_Innovations_Recycled_Product__c
+                LIMIT 1
+            ];
+
+        Re_Plastic_Innovations_Order__c order =
+            new Re_Plastic_Innovations_Order__c(
+                Recycled_Product__c = product.Id,
+                Quantity__c = 20
+            );
+
+        Test.startTest();
+
+        InventoryManager.processOrderStock(
+            new List<Re_Plastic_Innovations_Order__c>{order}
+        );
+
+        Test.stopTest();
+
+        Re_Plastic_Innovations_Recycled_Product__c updatedProduct =
+            [
+                SELECT Stock_Level__c
+                FROM Re_Plastic_Innovations_Recycled_Product__c
+                WHERE Id = :product.Id
+            ];
+
+        System.assertEquals(30, updatedProduct.Stock_Level__c);
+    }
+
+    @isTest
+    static void testInsufficientStockCreatesRestock() {
+
+        Re_Plastic_Innovations_Recycled_Product__c product =
+            [
+                SELECT Id
+                FROM Re_Plastic_Innovations_Recycled_Product__c
+                LIMIT 1
+            ];
+
+        Re_Plastic_Innovations_Order__c order =
+            new Re_Plastic_Innovations_Order__c(
+                Recycled_Product__c = product.Id,
+                Quantity__c = 80
+            );
+
+        Test.startTest();
+
+        InventoryManager.processOrderStock(
+            new List<Re_Plastic_Innovations_Order__c>{order}
+        );
+
+        Test.stopTest();
+
+        List<Re_Plastic_Innovations_Restock_Request__c> requests =
+            [
+                SELECT Id, Product__c, Requested_Quantity__c, Status__c
+                FROM Re_Plastic_Innovations_Restock_Request__c
+            ];
+
+        System.assertEquals(1, requests.size());
+        System.assertEquals(product.Id, requests[0].Product__c);
+        System.assertEquals(30, requests[0].Requested_Quantity__c);
+        System.assertEquals('Pending', requests[0].Status__c);
+    }
+
+    @isTest
+    static void testProcessRestockApproval() {
+
+        Re_Plastic_Innovations_Recycled_Product__c product =
+            [
+                SELECT Id, Stock_Level__c
+                FROM Re_Plastic_Innovations_Recycled_Product__c
+                LIMIT 1
+            ];
+
+        Re_Plastic_Innovations_Restock_Request__c restock =
+            new Re_Plastic_Innovations_Restock_Request__c(
+                Product__c = product.Id,
+                Requested_Quantity__c = 20,
+                Status__c = 'Approved'
+            );
+
+        Test.startTest();
+
+        InventoryManager.processRestockApproval(
+            new List<Re_Plastic_Innovations_Restock_Request__c>{restock}
+        );
+
+        Test.stopTest();
+
+        Re_Plastic_Innovations_Recycled_Product__c updatedProduct =
+            [
+                SELECT Stock_Level__c
+                FROM Re_Plastic_Innovations_Recycled_Product__c
+                WHERE Id = :product.Id
+            ];
+
+        System.assertEquals(70, updatedProduct.Stock_Level__c);
+    }
+
+    @isTest
+    static void testOrderTrigger() {
+
+        Re_Plastic_Innovations_Recycled_Product__c product =
+            [
+                SELECT Id
+                FROM Re_Plastic_Innovations_Recycled_Product__c
+                LIMIT 1
+            ];
+
+        Re_Plastic_Innovations_Order__c order =
+            new Re_Plastic_Innovations_Order__c(
+                Recycled_Product__c = product.Id,
+                Quantity__c = 10
+            );
+
+        Test.startTest();
+
+        insert order;
+
+        Test.stopTest();
+
+        Re_Plastic_Innovations_Recycled_Product__c updatedProduct =
+            [
+                SELECT Stock_Level__c
+                FROM Re_Plastic_Innovations_Recycled_Product__c
+                WHERE Id = :product.Id
+            ];
+
+        System.assertEquals(40, updatedProduct.Stock_Level__c);
+    }
+
+    @isTest
+    static void testRestockApprovalTrigger() {
+
+        Re_Plastic_Innovations_Recycled_Product__c product =
+            [
+                SELECT Id
+                FROM Re_Plastic_Innovations_Recycled_Product__c
+                LIMIT 1
+            ];
+
+        Re_Plastic_Innovations_Restock_Request__c restock =
+            new Re_Plastic_Innovations_Restock_Request__c(
+                Product__c = product.Id,
+                Requested_Quantity__c = 25,
+                Status__c = 'Pending'
+            );
+
+        insert restock;
+
+        Test.startTest();
+
+        restock.Status__c = 'Approved';
+        update restock;
+
+        Test.stopTest();
+
+        Re_Plastic_Innovations_Recycled_Product__c updatedProduct =
+            [
+                SELECT Stock_Level__c
+                FROM Re_Plastic_Innovations_Recycled_Product__c
+                WHERE Id = :product.Id
+            ];
+
+        System.assertEquals(75, updatedProduct.Stock_Level__c);
+    }
+
+    @isTest
+    static void testEmailNotification() {
+
+        Re_Plastic_Innovations_Recycled_Product__c product =
+            [
+                SELECT Id
+                FROM Re_Plastic_Innovations_Recycled_Product__c
+                LIMIT 1
+            ];
+
+        Re_Plastic_Innovations_Restock_Request__c restock =
+            new Re_Plastic_Innovations_Restock_Request__c(
+                Product__c = product.Id,
+                Requested_Quantity__c = 10,
+                Status__c = 'Approved'
+            );
+
+        Test.startTest();
+
+        EmailNotificationHelper.sendRestockNotification(
+            new List<Re_Plastic_Innovations_Restock_Request__c>{restock}
+        );
+
+        Test.stopTest();
+
+        System.assertEquals('Approved', restock.Status__c);
+    }
+
+    @isTest
+    static void testEmptyOrderList() {
+
+        Test.startTest();
+
+        InventoryManager.processOrderStock(
+            new List<Re_Plastic_Innovations_Order__c>()
+        );
+
+        Test.stopTest();
+    }
+
+    @isTest
+    static void testEmptyRestockList() {
+
+        Test.startTest();
+
+        InventoryManager.processRestockApproval(
+            new List<Re_Plastic_Innovations_Restock_Request__c>()
+        );
+
+        Test.stopTest();
+    }
+
+    @isTest
+    static void testNullOrderList() {
+
+        Test.startTest();
+
+        InventoryManager.processOrderStock(null);
+
+        Test.stopTest();
+    }
+
+    @isTest
+    static void testNullRestockList() {
+
+        Test.startTest();
+
+        InventoryManager.processRestockApproval(null);
+
+        Test.stopTest();
+    }
+}
